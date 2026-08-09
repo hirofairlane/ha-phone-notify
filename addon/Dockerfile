@@ -17,6 +17,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     pipewire-pulse \
     wireplumber \
     pulseaudio-utils \
+    python3-gi \
+    libgl1 \
+    libegl1 \
+    libxkbcommon0 \
     bluez \
     dbus \
     git \
@@ -27,7 +31,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-RUN python3 -m venv /opt/venv
+RUN python3 -m venv --system-site-packages /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 RUN pip install --no-cache-dir vosk paho-mqtt piper-tts
 

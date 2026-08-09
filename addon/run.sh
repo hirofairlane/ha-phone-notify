@@ -80,7 +80,7 @@ EOF
 
 echo "[run.sh] starting handsfree-linux..."
 cd /opt/handsfree-linux
-python3 main.py > /data/handsfree-logs/handsfree.log 2>&1 &
+QT_QPA_PLATFORM=offscreen python3 main.py > /data/handsfree-logs/handsfree.log 2>&1 &
 cd /
 
 sleep 3

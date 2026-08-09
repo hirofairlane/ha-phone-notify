@@ -21,6 +21,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1 \
     libegl1 \
     libxkbcommon0 \
+    libfontconfig1 \
+    libxrender1 \
+    libxi6 \
+    libxrandr2 \
+    libxfixes3 \
+    libxcursor1 \
+    libxinerama1 \
+    libxkbcommon-x11-0 \
+    libxcb-cursor0 \
+    libxcb-xinerama0 \
+    libglib2.0-0 \
+    libdbus-1-3 \
     bluez \
     dbus \
     git \

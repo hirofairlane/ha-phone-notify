@@ -1,0 +1,23 @@
+name: "Phone Notify"
+version: "0.1.0"
+slug: "phone_notify"
+description: "Place a real phone call, speak a message, and listen for a spoken response — WORK IN PROGRESS, untested as a packaged add-on"
+url: "https://github.com/hirofairlane/ha-phone-notify"
+arch:
+  - aarch64
+  - amd64
+init: false
+host_dbus: true
+host_network: true
+privileged:
+  - SYS_ADMIN
+devices:
+  - /dev/bus/usb
+map:
+  - config:rw
+options:
+  vosk_model_url: "https://alphacephei.com/vosk/models/vosk-model-es-0.42.zip"
+  bluetooth_adapter: "hci0"
+schema:
+  vosk_model_url: str
+  bluetooth_adapter: str

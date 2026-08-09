@@ -1,0 +1,5 @@
+scripts/config.json
+*.wav
+__pycache__/
+*.pyc
+.pytest_cache/

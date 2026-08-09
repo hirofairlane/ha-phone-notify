@@ -1,0 +1,17 @@
+{
+  "vosk_model_path": "/opt/vosk-model-es-0.42",
+  "handsfree_log_path": "/var/log/handsfree/handsfree.log",
+  "downlink_source": "phone_notify_speaker.monitor",
+  "uplink_sink": "phone_notify_mic",
+  "sample_rate": 16000,
+  "response_actions": {
+    "cancel": {
+      "keywords": ["cancel", "false alarm", "cancelar", "cancela"]
+    },
+    "confirm": {
+      "keywords": ["confirm", "confirmo", "alerta"]
+    }
+  },
+  "call_wait_timeout_seconds": 60,
+  "listen_timeout_seconds": 40
+}

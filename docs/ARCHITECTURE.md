@@ -145,7 +145,7 @@ Gotchas worth knowing before you hit them yourself:
 - Proper HA Supervisor add-on packaging (Docker image, `config.yaml`)
   hasn't been built yet — see `addon/` for a starting skeleton.
 - The actual HA `notify` custom_component doesn't exist yet — today
-  this is orchestrated by standalone scripts, see `scripts/`.
+  this is orchestrated by standalone scripts, see `addon/scripts/`.
 - Whether the "everything runs inside the Android app, no external
   Bluetooth box at all" approach is viable on *any* device is genuinely
   unknown — we only tested one mid-range Qualcomm phone. If you try it

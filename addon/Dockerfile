@@ -30,7 +30,7 @@ RUN git clone --depth 1 https://github.com/PavelTarlev1/handsfree-linux /opt/han
     && pip install --no-cache-dir -r /opt/handsfree-linux/requirements.txt
 
 COPY scripts /opt/phone-notify/scripts
-COPY addon/run.sh addon/wireplumber-no-hfp-hf.conf /opt/phone-notify/
+COPY run.sh wireplumber-no-hfp-hf.conf /opt/phone-notify/
 RUN chmod +x /opt/phone-notify/run.sh
 
 CMD [ "/opt/phone-notify/run.sh" ]

@@ -34,11 +34,11 @@ security alarm cascade with escalation.
 > on this yourself). The add-on (`addon/`) talks MQTT in, places the
 > call over `adb`, plays a TTS prompt, listens for the response, and
 > publishes the result back over MQTT — including a startup
-> self-diagnostic (`scripts/doctor.py`) that checks every external
+> self-diagnostic (`addon/scripts/doctor.py`) that checks every external
 > dependency and tells you exactly what to fix if something's wrong.
 > **Not yet done:** a real HA `notify` custom_component wrapping the
 > MQTT protocol (right now you'd call it by publishing MQTT messages
-> yourself — see the protocol in `scripts/mqtt_bridge.py`'s docstring),
+> yourself — see the protocol in `addon/scripts/mqtt_bridge.py`'s docstring),
 > and this hasn't been through a full install-from-the-add-on-store
 > test yet. Contributions welcome.
 
@@ -91,7 +91,7 @@ that's exactly the API surface that's meant to carry live call audio.
 ## What's *not* proven / not built yet
 
 - The actual HA `notify` custom_component (config schema, events) —
-  today this is standalone scripts, see `scripts/`.
+  today this is standalone scripts, see `addon/scripts/`.
 - Packaging as a proper HA Supervisor add-on (Docker image following
   the add-on schema) — `addon/` has a starting skeleton, untested.
 - Capturing/injecting call audio **from inside the Android app

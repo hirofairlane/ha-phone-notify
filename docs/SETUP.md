@@ -48,7 +48,7 @@ Hands-Free headset. Pair them like you would any Bluetooth headset:
 
 Set `phone_adb_address` (from step 1), your MQTT broker details, and
 start the add-on. Check the add-on log — it runs a startup diagnostic
-(`scripts/doctor.py`) and will tell you clearly what's missing if
+(`addon/scripts/doctor.py`) and will tell you clearly what's missing if
 anything is.
 
 ## Choosing a speech model

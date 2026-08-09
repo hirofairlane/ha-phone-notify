@@ -19,16 +19,27 @@ mkdir -p "$XDG_RUNTIME_DIR"
 
 echo "[run.sh] starting pipewire..."
 pipewire &
-sleep 1
+for i in $(seq 1 50); do
+  [ -S "$XDG_RUNTIME_DIR/pipewire-0" ] && break
+  sleep 0.2
+done
+
 mkdir -p "$XDG_RUNTIME_DIR/wireplumber/wireplumber.conf.d"
 cp /opt/phone-notify/wireplumber-no-hfp-hf.conf "$XDG_RUNTIME_DIR/wireplumber/wireplumber.conf.d/51-no-hfp-hf.conf"
 wireplumber &
-sleep 1
-pipewire-pulse &
 sleep 2
 
+pipewire-pulse &
+for i in $(seq 1 50); do
+  [ -S "$XDG_RUNTIME_DIR/pulse/native" ] && break
+  sleep 0.2
+done
+
 echo "[run.sh] creating virtual audio devices..."
-pactl load-module module-null-sink sink_name=phone_notify_mic sink_properties=device.description=PhoneNotifyMic
+for i in $(seq 1 30); do
+  pactl load-module module-null-sink sink_name=phone_notify_mic sink_properties=device.description=PhoneNotifyMic 2>/dev/null && break
+  sleep 0.5
+done
 pactl load-module module-null-sink sink_name=phone_notify_speaker sink_properties=device.description=PhoneNotifySpeaker
 
 VOSK_MODEL_DIR=/data/vosk-model

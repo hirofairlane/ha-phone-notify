@@ -1,25 +1,36 @@
-# WORK IN PROGRESS — not yet built or tested as an actual HA add-on image.
-# This is a starting skeleton based on what's known to work as loose
-# system packages (see ../docs/ARCHITECTURE.md); it hasn't been
-# validated inside the HA Supervisor container environment yet.
-ARG BUILD_FROM
-FROM $BUILD_FROM
+# Deliberately NOT based on the standard $BUILD_FROM Alpine/musl HA base
+# images: Vosk's PyPI wheels are manylinux (glibc) only, no musllinux
+# build exists, so this needs a glibc base. Debian slim keeps the image
+# reasonably small while giving us real apt packages for PipeWire/BlueZ.
+FROM debian:bookworm-slim
 
-RUN apk add --no-cache \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
-    py3-pip \
-    bluez \
+    python3-pip \
+    python3-venv \
     pipewire \
     pipewire-pulse \
     wireplumber \
-    git
+    bluez \
+    dbus \
+    git \
+    curl \
+    unzip \
+    jq \
+    adb \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
-RUN pip install --no-cache-dir --break-system-packages vosk
+RUN python3 -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+RUN pip install --no-cache-dir vosk paho-mqtt piper-tts
 
-# HandsFree-Linux (Bluetooth HFP Hands-Free role implementation)
-RUN git clone --depth 1 https://github.com/PavelTarlev1/handsfree-linux /opt/handsfree-linux
+# HandsFree-Linux: Bluetooth HFP Hands-Free role implementation
+RUN git clone --depth 1 https://github.com/PavelTarlev1/handsfree-linux /opt/handsfree-linux \
+    && pip install --no-cache-dir -r /opt/handsfree-linux/requirements.txt
 
-COPY ../scripts /opt/phone-notify/scripts
-COPY run.sh /
+COPY scripts /opt/phone-notify/scripts
+COPY addon/run.sh addon/wireplumber-no-hfp-hf.conf /opt/phone-notify/
+RUN chmod +x /opt/phone-notify/run.sh
 
-CMD [ "/run.sh" ]
+CMD [ "/opt/phone-notify/run.sh" ]

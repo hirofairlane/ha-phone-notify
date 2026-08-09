@@ -27,14 +27,20 @@ system. Use it for leak detection, medication reminders that need a
 "yes I took it", garage-door-left-open confirmations, or a real
 security alarm cascade with escalation.
 
-> **Status: early / experimental.** This started as a weekend project
-> to solve a very specific problem (see
+> **Status: early / experimental, but wired end-to-end.** This
+> started as a weekend project to solve a very specific problem (see
 > [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full story,
 > including two dead ends worth knowing about before you try to build
-> on this yourself) and is shared as-is. The HA integration piece
-> (custom_component with a real `notify` platform) is **not built
-> yet** — what's here is the proven backend piece (see "What's proven"
-> below) plus the design for the rest. Contributions welcome.
+> on this yourself). The add-on (`addon/`) talks MQTT in, places the
+> call over `adb`, plays a TTS prompt, listens for the response, and
+> publishes the result back over MQTT — including a startup
+> self-diagnostic (`scripts/doctor.py`) that checks every external
+> dependency and tells you exactly what to fix if something's wrong.
+> **Not yet done:** a real HA `notify` custom_component wrapping the
+> MQTT protocol (right now you'd call it by publishing MQTT messages
+> yourself — see the protocol in `scripts/mqtt_bridge.py`'s docstring),
+> and this hasn't been through a full install-from-the-add-on-store
+> test yet. Contributions welcome.
 
 ## Why a phone call, and not a push notification?
 
@@ -96,13 +102,19 @@ that's exactly the API surface that's meant to carry live call audio.
 
 ## Hardware you need
 
-- A Home Assistant instance (any install type).
-- A small always-on Linux box near the phone with a Bluetooth adapter
-  (a Raspberry Pi is the obvious choice; the prototype used a random
-  spare laptop).
-- An old Android phone with a SIM card, rooted (Magisk). Doesn't need
-  to be anyone's daily driver — a retired phone works great, that's
-  the whole point.
+- A Home Assistant instance with a Bluetooth adapter available to it
+  (built-in on most mini-PC installs; a USB adapter passed through if
+  you're on a VM — see `docs/SETUP.md`).
+- An old Android phone with a voice-capable SIM. **Root is not
+  required** — the working approach only needs `adb` (Wireless
+  debugging), a normal non-root developer feature. Doesn't need to be
+  anyone's daily driver — a retired phone works great, that's the
+  whole point.
+- An MQTT broker (the official Mosquitto add-on works).
+
+Full setup instructions, including the exact Wireless-debugging pairing
+steps and Proxmox passthrough if that applies to you:
+[`docs/SETUP.md`](docs/SETUP.md).
 
 ## License
 

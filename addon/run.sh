@@ -1,9 +1,89 @@
 #!/usr/bin/env bash
-# WORK IN PROGRESS — placeholder entrypoint. Needs: start PipeWire/WirePlumber,
-# apply the WirePlumber hfp_hf-exclusion config (see ../docs/ARCHITECTURE.md),
-# start HandsFree-Linux, recreate the virtual null-sinks (they don't survive
-# a PipeWire restart, see ARCHITECTURE.md), then bridge MQTT/HA events to
-# scripts/phone_call_listener.py invocations.
 set -e
-echo "phone-notify addon: not implemented yet, see docs/ARCHITECTURE.md"
-sleep infinity
+
+OPTIONS=/data/options.json
+VOSK_MODEL_URL=$(jq -r '.vosk_model_url' "$OPTIONS")
+TTS_VOICE_URL=$(jq -r '.tts_voice_url' "$OPTIONS")
+TTS_VOICE_CONFIG_URL=$(jq -r '.tts_voice_config_url' "$OPTIONS")
+BT_ADAPTER=$(jq -r '.bluetooth_adapter' "$OPTIONS")
+MQTT_PREFIX=$(jq -r '.mqtt_topic_prefix' "$OPTIONS")
+MQTT_HOST=$(jq -r '.mqtt_host' "$OPTIONS")
+MQTT_PORT=$(jq -r '.mqtt_port' "$OPTIONS")
+MQTT_USERNAME=$(jq -r '.mqtt_username' "$OPTIONS")
+MQTT_PASSWORD=$(jq -r '.mqtt_password' "$OPTIONS")
+PHONE_ADB_ADDRESS=$(jq -r '.phone_adb_address' "$OPTIONS")
+echo "$PHONE_ADB_ADDRESS" > /data/adb_address
+
+export XDG_RUNTIME_DIR=/tmp/run
+mkdir -p "$XDG_RUNTIME_DIR"
+
+echo "[run.sh] starting pipewire..."
+pipewire &
+sleep 1
+mkdir -p "$XDG_RUNTIME_DIR/wireplumber/wireplumber.conf.d"
+cp /opt/phone-notify/wireplumber-no-hfp-hf.conf "$XDG_RUNTIME_DIR/wireplumber/wireplumber.conf.d/51-no-hfp-hf.conf"
+wireplumber &
+sleep 1
+pipewire-pulse &
+sleep 2
+
+echo "[run.sh] creating virtual audio devices..."
+pactl load-module module-null-sink sink_name=phone_notify_mic sink_properties=device.description=PhoneNotifyMic
+pactl load-module module-null-sink sink_name=phone_notify_speaker sink_properties=device.description=PhoneNotifySpeaker
+
+VOSK_MODEL_DIR=/data/vosk-model
+if [ ! -d "$VOSK_MODEL_DIR" ]; then
+  echo "[run.sh] downloading speech model (first run only, this can take a while)..."
+  curl -sL -o /tmp/vosk-model.zip "$VOSK_MODEL_URL"
+  mkdir -p /tmp/vosk-extract
+  unzip -q /tmp/vosk-model.zip -d /tmp/vosk-extract
+  mv /tmp/vosk-extract/*/* "$VOSK_MODEL_DIR" 2>/dev/null || mv /tmp/vosk-extract/* "$VOSK_MODEL_DIR"
+  rm -rf /tmp/vosk-model.zip /tmp/vosk-extract
+fi
+
+TTS_VOICE_DIR=/data/tts-voice
+if [ ! -f "$TTS_VOICE_DIR/voice.onnx" ]; then
+  echo "[run.sh] downloading TTS voice (first run only)..."
+  mkdir -p "$TTS_VOICE_DIR"
+  curl -sL -o "$TTS_VOICE_DIR/voice.onnx" "$TTS_VOICE_URL"
+  curl -sL -o "$TTS_VOICE_DIR/voice.onnx.json" "$TTS_VOICE_CONFIG_URL"
+fi
+
+mkdir -p /data/handsfree-logs /root/.config/handsfree
+cat > /root/.config/handsfree/config.toml << EOF
+[bluetooth]
+adapter = "$BT_ADAPTER"
+auto_connect = true
+preferred_codec = "msbc"
+
+[audio]
+sco_routing = "pipewire"
+call_output_device = "phone_notify_speaker"
+call_input_device  = "phone_notify_mic.monitor"
+call_volume = 80
+ring_volume = 80
+
+[ui]
+show_main_window_on_start = false
+EOF
+
+echo "[run.sh] starting handsfree-linux..."
+cd /opt/handsfree-linux
+python3 main.py > /data/handsfree-logs/handsfree.log 2>&1 &
+cd /
+
+sleep 3
+echo "[run.sh] running startup diagnostics..."
+python3 /opt/phone-notify/scripts/doctor.py || echo "[run.sh] some checks failed, see above — starting anyway, fix and restart the add-on"
+
+echo "[run.sh] starting MQTT bridge..."
+exec python3 /opt/phone-notify/scripts/mqtt_bridge.py \
+  --vosk-model-path "$VOSK_MODEL_DIR" \
+  --handsfree-log-path /data/handsfree-logs/handsfree.log \
+  --mqtt-topic-prefix "$MQTT_PREFIX" \
+  --voice-model-path "$TTS_VOICE_DIR/voice.onnx" \
+  --adb-address-file /data/adb_address \
+  --mqtt-host "$MQTT_HOST" \
+  --mqtt-port "$MQTT_PORT" \
+  --mqtt-username "$MQTT_USERNAME" \
+  --mqtt-password "$MQTT_PASSWORD"

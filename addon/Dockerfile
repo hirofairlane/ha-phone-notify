@@ -33,6 +33,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxcb-xinerama0 \
     libglib2.0-0 \
     libdbus-1-3 \
+    libsbc1 \
     bluez \
     dbus \
     git \

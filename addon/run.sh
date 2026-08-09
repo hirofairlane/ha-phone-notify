@@ -65,7 +65,7 @@ cat > /root/.config/handsfree/config.toml << EOF
 [bluetooth]
 adapter = "$BT_ADAPTER"
 auto_connect = true
-preferred_codec = "msbc"
+preferred_codec = "cvsd"
 
 [audio]
 sco_routing = "pipewire"

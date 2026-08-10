@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 set -e
 
+# Persist the adb client identity (~/.android/adbkey*) across container
+# rebuilds by pointing $HOME at the add-on's persistent /data volume —
+# otherwise every rebuild generates a fresh adb key, and the phone has
+# to manually re-authorize a "new" computer every single time.
+export HOME=/data/adb_home
+mkdir -p "$HOME"
+
 OPTIONS=/data/options.json
 VOSK_MODEL_URL=$(jq -r '.vosk_model_url' "$OPTIONS")
 TTS_VOICE_URL=$(jq -r '.tts_voice_url' "$OPTIONS")

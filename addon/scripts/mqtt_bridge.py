@@ -72,7 +72,19 @@ def _tail_new_lines(path, since_pos):
         return data, f.tell()
 
 
-def ensure_bluetooth_connected(phone_bt_mac, handsfree_log_path, max_wait=25):
+def _wait_for_slc(handsfree_log_path, log_pos, timeout):
+    """Poll handsfree.log for 'SLC established', returns (found, new_log_pos)."""
+    start = time.time()
+    while time.time() - start < timeout:
+        new_data, log_pos = _tail_new_lines(handsfree_log_path, log_pos)
+        if "SLC established" in new_data:
+            return True, log_pos
+        time.sleep(0.5)
+    return False, log_pos
+
+
+def ensure_bluetooth_connected(phone_bt_mac, handsfree_log_path,
+                                grace_period=6, fallback_wait=25):
     """The HFP link (SLC) can drop after a period of idle time (a known
     issue being tracked, see docs/ARCHITECTURE.md) — reconnect it before
     every call rather than assuming it is already up, otherwise the call
@@ -84,31 +96,51 @@ def ensure_bluetooth_connected(phone_bt_mac, handsfree_log_path, max_wait=25):
     on top of that, and dialing before SLC is ready means the phone has
     already committed to the earpiece as the call's audio route by the
     time SLC finishes (it does not retroactively switch to Bluetooth).
+
+    IMPORTANT: HandsFree-Linux has its OWN internal auto-reconnect timer
+    (fires 3s after it detects a disconnect, see core/app.py). Calling
+    `bluetoothctl connect` ourselves at the same time races against that
+    timer — two concurrent connect attempts on the same device confuse
+    BlueZ and reliably produce a reset SLC (this was root-caused after
+    the naive "always reconnect ourselves immediately" version made
+    things measurably worse, not better). So: give HandsFree's own timer
+    a `grace_period` to do its job untouched first, and only fall back to
+    our own explicit `bluetoothctl connect` if that grace period elapses
+    with nothing happening.
     """
     if not phone_bt_mac:
         return
-    result = subprocess.run(
-        ["bluetoothctl", "info", phone_bt_mac], capture_output=True, text=True, timeout=5,
-    )
-    already_connected = "Connected: yes" in result.stdout
 
     log_pos = os.path.getsize(handsfree_log_path) if os.path.exists(handsfree_log_path) else 0
 
-    if not already_connected:
-        print(f"[mqtt_bridge] Bluetooth link to {phone_bt_mac} is down, reconnecting...", flush=True)
-        subprocess.run(
-            ["bluetoothctl", "connect", phone_bt_mac], capture_output=True, timeout=max_wait,
-        )
-
-    print("[mqtt_bridge] waiting for SLC (full HFP handshake)...", flush=True)
-    start = time.time()
-    while time.time() - start < max_wait:
-        new_data, log_pos = _tail_new_lines(handsfree_log_path, log_pos)
-        if "SLC established" in new_data:
+    result = subprocess.run(
+        ["bluetoothctl", "info", phone_bt_mac], capture_output=True, text=True, timeout=5,
+    )
+    if "Connected: yes" in result.stdout:
+        print("[mqtt_bridge] Bluetooth link already up, confirming SLC...", flush=True)
+        found, log_pos = _wait_for_slc(handsfree_log_path, log_pos, fallback_wait)
+        if found:
             print("[mqtt_bridge] SLC established, ready to dial", flush=True)
-            return
-        time.sleep(0.5)
-    print("[mqtt_bridge] WARNING: SLC not confirmed within timeout, dialing anyway", flush=True)
+        else:
+            print("[mqtt_bridge] WARNING: SLC not confirmed within timeout, dialing anyway", flush=True)
+        return
+
+    print(f"[mqtt_bridge] Bluetooth link to {phone_bt_mac} is down, "
+          f"giving HandsFree-Linux's own auto-reconnect {grace_period}s before intervening...", flush=True)
+    found, log_pos = _wait_for_slc(handsfree_log_path, log_pos, grace_period)
+    if found:
+        print("[mqtt_bridge] SLC established via HandsFree's own reconnect, ready to dial", flush=True)
+        return
+
+    print("[mqtt_bridge] grace period elapsed, triggering our own reconnect...", flush=True)
+    subprocess.run(
+        ["bluetoothctl", "connect", phone_bt_mac], capture_output=True, timeout=fallback_wait,
+    )
+    found, log_pos = _wait_for_slc(handsfree_log_path, log_pos, fallback_wait)
+    if found:
+        print("[mqtt_bridge] SLC established, ready to dial", flush=True)
+    else:
+        print("[mqtt_bridge] WARNING: SLC not confirmed within timeout, dialing anyway", flush=True)
 
 
 def trigger_call(adb_address, phone_number, phone_bt_mac, handsfree_log_path):

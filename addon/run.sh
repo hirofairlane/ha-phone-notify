@@ -13,6 +13,7 @@ MQTT_USERNAME=$(jq -r '.mqtt_username' "$OPTIONS")
 MQTT_PASSWORD=$(jq -r '.mqtt_password' "$OPTIONS")
 PHONE_ADB_ADDRESS=$(jq -r '.phone_adb_address' "$OPTIONS")
 echo "$PHONE_ADB_ADDRESS" > /data/adb_address
+PHONE_BT_MAC=$(jq -r '.phone_bt_mac' "$OPTIONS")
 
 export XDG_RUNTIME_DIR=/tmp/run
 mkdir -p "$XDG_RUNTIME_DIR"
@@ -94,6 +95,7 @@ exec python3 /opt/phone-notify/scripts/mqtt_bridge.py \
   --mqtt-topic-prefix "$MQTT_PREFIX" \
   --voice-model-path "$TTS_VOICE_DIR/voice.onnx" \
   --adb-address-file /data/adb_address \
+  --phone-bt-mac "$PHONE_BT_MAC" \
   --mqtt-host "$MQTT_HOST" \
   --mqtt-port "$MQTT_PORT" \
   --mqtt-username "$MQTT_USERNAME" \

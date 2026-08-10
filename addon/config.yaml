@@ -22,6 +22,7 @@ options:
   mqtt_username: ""
   mqtt_password: ""
   phone_adb_address: ""
+  phone_bt_mac: ""
 schema:
   vosk_model_url: str
   tts_voice_url: str
@@ -33,3 +34,4 @@ schema:
   mqtt_username: str
   mqtt_password: password
   phone_adb_address: str
+  phone_bt_mac: str

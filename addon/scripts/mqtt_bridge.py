@@ -65,7 +65,36 @@ def synthesize_prompt(text, voice_model_path, out_wav_path):
     )
 
 
-def trigger_call(adb_address, phone_number):
+def ensure_bluetooth_connected(phone_bt_mac, max_wait=15):
+    """The HFP link (SLC) can drop after a period of idle time (a known
+    issue being tracked, see docs/ARCHITECTURE.md) — reconnect it before
+    every call rather than assuming it is already up, otherwise the call
+    goes out over the SIM with no Bluetooth audio path attached at all."""
+    if not phone_bt_mac:
+        return
+    result = subprocess.run(
+        ["bluetoothctl", "info", phone_bt_mac], capture_output=True, text=True, timeout=5,
+    )
+    if "Connected: yes" in result.stdout:
+        return
+    print(f"[mqtt_bridge] Bluetooth link to {phone_bt_mac} is down, reconnecting...", flush=True)
+    subprocess.run(
+        ["bluetoothctl", "connect", phone_bt_mac], capture_output=True, timeout=max_wait,
+    )
+    start = time.time()
+    while time.time() - start < max_wait:
+        result = subprocess.run(
+            ["bluetoothctl", "info", phone_bt_mac], capture_output=True, text=True, timeout=5,
+        )
+        if "Connected: yes" in result.stdout:
+            print("[mqtt_bridge] Bluetooth link reconnected", flush=True)
+            return
+        time.sleep(1)
+    print("[mqtt_bridge] WARNING: could not confirm Bluetooth reconnection, dialing anyway", flush=True)
+
+
+def trigger_call(adb_address, phone_number, phone_bt_mac):
+    ensure_bluetooth_connected(phone_bt_mac)
     subprocess.run(["adb", "connect", adb_address], capture_output=True, timeout=10)
     subprocess.run(
         ["adb", "-s", adb_address, "shell", "am", "start",
@@ -75,7 +104,7 @@ def trigger_call(adb_address, phone_number):
 
 
 def process_call(request, recognizer_model, sample_rate, handsfree_log_path,
-                  voice_model_path, adb_address):
+                  voice_model_path, adb_address, phone_bt_mac):
     request_id = request.get("id", "unknown")
     phone_number = request["phone_number"]
     message = request["message"]
@@ -90,7 +119,7 @@ def process_call(request, recognizer_model, sample_rate, handsfree_log_path,
     recognizer = vosk.KaldiRecognizer(recognizer_model, sample_rate)
 
     print(f"[mqtt_bridge] dialing {phone_number}", flush=True)
-    trigger_call(adb_address, phone_number)
+    trigger_call(adb_address, phone_number, phone_bt_mac)
 
     with open(handsfree_log_path, "r") as log_file:
         log_file.seek(0, os.SEEK_END)
@@ -142,6 +171,7 @@ def main():
     parser.add_argument("--mqtt-topic-prefix", default="phone_notify")
     parser.add_argument("--voice-model-path", default="/data/tts-voice/voice.onnx")
     parser.add_argument("--adb-address-file", default="/data/adb_address")
+    parser.add_argument("--phone-bt-mac", default="")
     parser.add_argument("--mqtt-host", default="core-mosquitto")
     parser.add_argument("--mqtt-port", type=int, default=1883)
     parser.add_argument("--mqtt-username", default="")
@@ -188,7 +218,7 @@ def main():
         try:
             result = process_call(
                 request, model, args.sample_rate, args.handsfree_log_path,
-                args.voice_model_path, adb_address,
+                args.voice_model_path, adb_address, args.phone_bt_mac,
             )
         except Exception as e:
             print(f"[mqtt_bridge] request {request_id} failed: {e}", flush=True)

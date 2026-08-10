@@ -65,36 +65,54 @@ def synthesize_prompt(text, voice_model_path, out_wav_path):
     )
 
 
-def ensure_bluetooth_connected(phone_bt_mac, max_wait=15):
+def _tail_new_lines(path, since_pos):
+    with open(path, "r") as f:
+        f.seek(since_pos)
+        data = f.read()
+        return data, f.tell()
+
+
+def ensure_bluetooth_connected(phone_bt_mac, handsfree_log_path, max_wait=25):
     """The HFP link (SLC) can drop after a period of idle time (a known
     issue being tracked, see docs/ARCHITECTURE.md) — reconnect it before
     every call rather than assuming it is already up, otherwise the call
-    goes out over the SIM with no Bluetooth audio path attached at all."""
+    goes out over the SIM with no Bluetooth audio path attached at all.
+
+    Waits for the FULL HFP stack (SLC established, from HandsFree-Linux's
+    own log) rather than just the base Bluetooth ACL link — the base link
+    coming up is not sufficient, SLC negotiation takes a few more seconds
+    on top of that, and dialing before SLC is ready means the phone has
+    already committed to the earpiece as the call's audio route by the
+    time SLC finishes (it does not retroactively switch to Bluetooth).
+    """
     if not phone_bt_mac:
         return
     result = subprocess.run(
         ["bluetoothctl", "info", phone_bt_mac], capture_output=True, text=True, timeout=5,
     )
-    if "Connected: yes" in result.stdout:
-        return
-    print(f"[mqtt_bridge] Bluetooth link to {phone_bt_mac} is down, reconnecting...", flush=True)
-    subprocess.run(
-        ["bluetoothctl", "connect", phone_bt_mac], capture_output=True, timeout=max_wait,
-    )
+    already_connected = "Connected: yes" in result.stdout
+
+    log_pos = os.path.getsize(handsfree_log_path) if os.path.exists(handsfree_log_path) else 0
+
+    if not already_connected:
+        print(f"[mqtt_bridge] Bluetooth link to {phone_bt_mac} is down, reconnecting...", flush=True)
+        subprocess.run(
+            ["bluetoothctl", "connect", phone_bt_mac], capture_output=True, timeout=max_wait,
+        )
+
+    print("[mqtt_bridge] waiting for SLC (full HFP handshake)...", flush=True)
     start = time.time()
     while time.time() - start < max_wait:
-        result = subprocess.run(
-            ["bluetoothctl", "info", phone_bt_mac], capture_output=True, text=True, timeout=5,
-        )
-        if "Connected: yes" in result.stdout:
-            print("[mqtt_bridge] Bluetooth link reconnected", flush=True)
+        new_data, log_pos = _tail_new_lines(handsfree_log_path, log_pos)
+        if "SLC established" in new_data:
+            print("[mqtt_bridge] SLC established, ready to dial", flush=True)
             return
-        time.sleep(1)
-    print("[mqtt_bridge] WARNING: could not confirm Bluetooth reconnection, dialing anyway", flush=True)
+        time.sleep(0.5)
+    print("[mqtt_bridge] WARNING: SLC not confirmed within timeout, dialing anyway", flush=True)
 
 
-def trigger_call(adb_address, phone_number, phone_bt_mac):
-    ensure_bluetooth_connected(phone_bt_mac)
+def trigger_call(adb_address, phone_number, phone_bt_mac, handsfree_log_path):
+    ensure_bluetooth_connected(phone_bt_mac, handsfree_log_path)
     subprocess.run(["adb", "connect", adb_address], capture_output=True, timeout=10)
     subprocess.run(
         ["adb", "-s", adb_address, "shell", "am", "start",
@@ -119,7 +137,7 @@ def process_call(request, recognizer_model, sample_rate, handsfree_log_path,
     recognizer = vosk.KaldiRecognizer(recognizer_model, sample_rate)
 
     print(f"[mqtt_bridge] dialing {phone_number}", flush=True)
-    trigger_call(adb_address, phone_number, phone_bt_mac)
+    trigger_call(adb_address, phone_number, phone_bt_mac, handsfree_log_path)
 
     with open(handsfree_log_path, "r") as log_file:
         log_file.seek(0, os.SEEK_END)

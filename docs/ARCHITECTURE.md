@@ -140,6 +140,68 @@ Gotchas worth knowing before you hit them yourself:
 | [Vosk](https://alphacephei.com/vosk/) | Offline speech recognition |
 | [Piper](https://github.com/rhasspy/piper) | Offline TTS for the spoken prompt |
 
+## Known issue: the HFP link (SLC) can be flaky under BlueZ
+
+While building the actual HA add-on (Docker image, MQTT bridge, real
+Supervisor deployment — as opposed to the loose system packages the
+rest of this doc describes), a real, still-open bug surfaced: the HFP
+Service Level Connection (SLC — the RFCOMM/AT-command session on top
+of the base Bluetooth link, separate from and slower to establish
+than basic pairing/connection) sometimes:
+
+- drops on its own after roughly 1-2 minutes idle (no active call),
+  logged as `Send error: [Errno 104] Connection reset by peer` or
+  `[Errno 107] Transport endpoint is not connected`;
+- fails to (re-)establish at all on a given attempt, with no error
+  beyond a timeout — sometimes the very next attempt succeeds cleanly
+  within a couple of seconds.
+
+Consequence if unhandled: dialing while the SLC happens to be down (or
+mid-negotiation) means the call goes out over the SIM as a completely
+normal, audio-less phone call — nothing is broken from the caller's
+perspective (it rings, connects, sounds completely ordinary), but no
+TTS prompt is heard and nothing is captured, because the Bluetooth
+audio path was never actually attached to it.
+
+Mitigations implemented so far (`addon/scripts/mqtt_bridge.py`):
+
+1. Before every dial, check `bluetoothctl info <mac>` and explicitly
+   `bluetoothctl connect <mac>` if the base link is down.
+2. **Also wait for `SLC established` in HandsFree-Linux's own log**
+   before dialing, not just the base BT connection — the base link
+   coming up is necessary but not sufficient; SLC negotiation is a
+   separate, slower step on top of it, and dialing before SLC is
+   actually ready means the phone has already committed to the
+   earpiece as the call's audio route by the time SLC finishes (it
+   does not retroactively switch to Bluetooth mid-call).
+
+This reduced but did not eliminate the failure rate — SLC
+establishment itself is sometimes just slow or fails outright for
+reasons not yet root-caused (observed on one phone/adapter pair;
+unclear yet whether this is a HandsFree-Linux behavior, a BlueZ
+version quirk, or specific to the Redmi's Bluetooth stack). **Toggling
+Bluetooth off/on on the phone reliably un-stuck it in testing** —
+suggesting the phone's own BT stack, not just our side, contributes to
+the instability.
+
+### Leads for whoever picks this up next
+
+- Capture `btmon` across several SLC-establishment attempts (both
+  fast-success and slow/failed ones) and diff the HCI-level traffic —
+  this project already used that technique successfully to root-cause
+  an unrelated scripted-pairing bug (see the pairing gotchas above),
+  it's the right tool here too.
+- Check whether `preferred_codec = "cvsd"` vs `"msbc"` in
+  `handsfree/config.toml` (and whether `libsbc1` is installed) affects
+  failure rate — tested inconclusively (both codecs failed at least
+  once, both also succeeded at least once) but not exhaustively.
+- Consider whether periodic keepalive traffic on the RFCOMM channel
+  (instead of only reconnecting reactively before a call) would
+  prevent the idle-drop in the first place, rather than recovering
+  from it after the fact.
+- Test on a second phone/chipset to isolate whether this is
+  device-specific.
+
 ## Open questions / where this needs help
 
 - Proper HA Supervisor add-on packaging (Docker image, `config.yaml`)

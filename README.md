@@ -27,20 +27,25 @@ system. Use it for leak detection, medication reminders that need a
 "yes I took it", garage-door-left-open confirmations, or a real
 security alarm cascade with escalation.
 
-> **Status: early / experimental, but wired end-to-end.** This
+> **Status: early / experimental, installable, but flaky.** This
 > started as a weekend project to solve a very specific problem (see
 > [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full story,
 > including two dead ends worth knowing about before you try to build
-> on this yourself). The add-on (`addon/`) talks MQTT in, places the
-> call over `adb`, plays a TTS prompt, listens for the response, and
-> publishes the result back over MQTT — including a startup
-> self-diagnostic (`addon/scripts/doctor.py`) that checks every external
-> dependency and tells you exactly what to fix if something's wrong.
-> **Not yet done:** a real HA `notify` custom_component wrapping the
-> MQTT protocol (right now you'd call it by publishing MQTT messages
-> yourself — see the protocol in `addon/scripts/mqtt_bridge.py`'s docstring),
-> and this hasn't been through a full install-from-the-add-on-store
-> test yet. Contributions welcome.
+> on this yourself). The add-on has been built and installed for real
+> through the HA Supervisor add-on store (not just built locally) —
+> MQTT in, `adb` dialing, TTS prompt, listening for the response, MQTT
+> result out, plus a startup self-diagnostic
+> (`addon/scripts/doctor.py`) that checks every external dependency.
+> **Known bug, not yet fixed:** the Bluetooth HFP link is intermittently
+> flaky — sometimes drops after a period of idle time and doesn't
+> always re-establish cleanly before a call, which silently results in
+> a normal audio-less phone call instead of the TTS prompt + listening
+> flow. Full write-up and leads for whoever picks this up next in
+> [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#known-issue-the-hfp-link-slc-can-be-flaky-under-bluez).
+> **Also not yet done:** a real HA `notify` custom_component wrapping
+> the MQTT protocol (right now you'd call it by publishing MQTT
+> messages yourself — see the protocol in
+> `addon/scripts/mqtt_bridge.py`'s docstring). Contributions welcome.
 
 ## Why a phone call, and not a push notification?
 

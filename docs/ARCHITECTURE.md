@@ -140,6 +140,84 @@ Gotchas worth knowing before you hit them yourself:
 | [Vosk](https://alphacephei.com/vosk/) | Offline speech recognition |
 | [Piper](https://github.com/rhasspy/piper) | Offline TTS for the spoken prompt |
 
+## Known issue: PipeWire audio streams never complete in this containerized environment
+
+A second, separate bug found while validating the packaged add-on for
+real (Docker container, inside a HAOS VM, on Proxmox — as opposed to
+the loose system packages the rest of this doc describes). Once the
+SLC-flakiness bug above got fixed enough to reach a genuinely stable
+Bluetooth link (confirmed via a live AT+CIND keepalive exchange running
+for minutes without dropping), and SCO audio itself started correctly
+(`SCO audio running`, confirmed with real bidirectional pacat/parec
+loops from HandsFree-Linux's own side) — **`paplay`/`pw-play` still
+never actually deliver the prompt.** Every playback attempt against the
+virtual `phone_notify_mic` null-sink (and even the system default sink,
+ruling out a device-selection bug) fails after **exactly ~30 seconds**
+with `Stream error: Timeout`.
+
+### What was ruled out, with evidence
+
+- **Not a device-selection bug.** Reproduced identically with an
+  explicit `--device=phone_notify_mic` and with no `--device` flag at
+  all (system default sink).
+- **Not the container's PipeWire being dead/OOM-killed.** `pactl list
+  sinks` returns the sinks fine, `ps`/`/proc` confirm `pipewire` and
+  `pipewire-pulse` processes are alive and running throughout. (An
+  earlier debugging session wrongly concluded PipeWire had crashed —
+  that was a **self-inflicted false alarm**: manually running `pactl`
+  via a fresh `docker exec` doesn't inherit run.sh's exported
+  `$XDG_RUNTIME_DIR`, so it was connecting to the wrong/nonexistent
+  socket path. Always pass `XDG_RUNTIME_DIR=/tmp/run` explicitly when
+  debugging manually from outside run.sh's own process tree.)
+- **Not a missing ALSA/dummy clock driver.** `pw-dump` shows a
+  `Dummy-Driver` and `Freewheel-Driver` node present in the graph.
+  Explicitly mounting the host's `/dev/snd` (which exists on the HAOS
+  host but has no real sound card, only `seq`/`timer`) into the
+  container made no difference.
+- **Not a clock-rate/quantum negotiation problem.** Forcing explicit
+  `default.clock.rate` / `default.clock.quantum` /
+  `support.dummy-driver` context properties via a
+  `pipewire.conf.d` drop-in made no difference — still fails at
+  exactly ~30.0s every time.
+- **Confirmed via `strace -f -tt` on the hanging `paplay` process**:
+  the client successfully connects to `pipewire-pulse`, completes the
+  `CREATE_PLAYBACK_STREAM` protocol handshake (`SCM_CREDENTIALS` shows
+  the correct peer PID), then sits in `ppoll()` waiting on the stream's
+  fd for further server events that never arrive — for exactly the
+  ~30s the client-side protocol timeout allows, then gives up. This is
+  a real, client-observable stall in stream lifecycle progress on the
+  **server** side (`pipewire-pulse` accepts the stream but never
+  drives it to a playable/draining state), not a client bug and not an
+  infinite hang.
+
+### Leads for whoever picks this up next
+
+- This smells like a `pipewire-pulse` (or core PipeWire graph
+  scheduling) bug specific to genuinely headless environments with
+  *zero* real audio hardware **and** nested virtualization (Docker
+  inside a QEMU/KVM VM inside Proxmox) — each layer individually is
+  common and well-supported, but this specific combination may be
+  under-tested upstream.
+- Worth checking PipeWire's own GitLab issue tracker for existing
+  reports matching "stream never completes docker no sound card"
+  before debugging further — this write-up alone represents several
+  hours of systematic elimination and might just be reproducing a
+  known, already-reported bug.
+- Worth testing on real hardware (a physical Raspberry Pi, no nested
+  virtualization, no Docker) to isolate whether nested virtualization
+  specifically is the trigger, or whether it's purely about the
+  complete absence of real audio hardware.
+- `PIPEWIRE_DEBUG=3` (or higher) environment variable on the
+  `pipewire` process itself (not just the client) would likely show
+  server-side graph scheduling detail that client-side `strace` can't
+  reveal — not yet tried.
+- Given the ~30s figure is suspiciously exact and round, check
+  `pipewire-pulse`'s own source for a hardcoded stream-creation
+  timeout constant — this might be a deliberate fallback timeout
+  rather than an emergent scheduling stall, which would point
+  debugging effort in a very different (and probably faster)
+  direction.
+
 ## Known issue: the HFP link (SLC) can be flaky under BlueZ
 
 While building the actual HA add-on (Docker image, MQTT bridge, real

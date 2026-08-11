@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 set -e
 
-# Persist the adb client identity (~/.android/adbkey*) across container
-# rebuilds by pointing $HOME at the add-on's persistent /data volume —
-# otherwise every rebuild generates a fresh adb key, and the phone has
-# to manually re-authorize a "new" computer every single time.
-export HOME=/data/adb_home
-mkdir -p "$HOME"
+# adb's client identity (~/.android/adbkey*) needs to persist across
+# container rebuilds, or the phone has to manually re-authorize a "new"
+# computer every single time. Scoped to ADB_HOME (passed explicitly to
+# adb invocations only, see mqtt_bridge.py) rather than the global
+# $HOME — HandsFree-Linux ALSO reads its config from ~/.config, so
+# changing $HOME globally silently resets it to defaults on every boot,
+# which is a real regression that happened here once already.
+export ADB_HOME=/data/adb_home
+mkdir -p "$ADB_HOME"
 
 OPTIONS=/data/options.json
 VOSK_MODEL_URL=$(jq -r '.vosk_model_url' "$OPTIONS")

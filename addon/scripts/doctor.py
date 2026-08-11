@@ -46,9 +46,13 @@ def check_adb(options):
     if shutil.which("adb") is None:
         return check("adb: binary available", False,
                       "adb is missing from the image — this is a bug in the add-on, please open an issue.")
-    subprocess.run(["adb", "connect", address], capture_output=True, timeout=10)
+    env = os.environ.copy()
+    adb_home = os.environ.get("ADB_HOME")
+    if adb_home:
+        env["HOME"] = adb_home
+    subprocess.run(["adb", "connect", address], capture_output=True, timeout=10, env=env)
     result = subprocess.run(["adb", "-s", address, "get-state"],
-                             capture_output=True, text=True, timeout=10)
+                             capture_output=True, text=True, timeout=10, env=env)
     ok = result.returncode == 0 and "device" in result.stdout
     return check(f"adb: phone reachable at {address}", ok,
                  "Phone unreachable. Common cause: the wireless-debugging port changed after the "

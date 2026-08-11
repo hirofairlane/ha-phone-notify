@@ -143,13 +143,28 @@ def ensure_bluetooth_connected(phone_bt_mac, handsfree_log_path,
         print("[mqtt_bridge] WARNING: SLC not confirmed within timeout, dialing anyway", flush=True)
 
 
+def _adb_env():
+    """adb's client identity persists in $HOME/.android/adbkey* — pointed
+    at ADB_HOME (a /data-backed persistent dir) rather than the process's
+    real $HOME, so the phone doesn't need to re-authorize a "new" device
+    on every container rebuild. See run.sh for why this is NOT just the
+    global $HOME (that broke HandsFree-Linux's own config lookup once).
+    """
+    env = os.environ.copy()
+    adb_home = os.environ.get("ADB_HOME")
+    if adb_home:
+        env["HOME"] = adb_home
+    return env
+
+
 def trigger_call(adb_address, phone_number, phone_bt_mac, handsfree_log_path):
     ensure_bluetooth_connected(phone_bt_mac, handsfree_log_path)
-    subprocess.run(["adb", "connect", adb_address], capture_output=True, timeout=10)
+    env = _adb_env()
+    subprocess.run(["adb", "connect", adb_address], capture_output=True, timeout=10, env=env)
     subprocess.run(
         ["adb", "-s", adb_address, "shell", "am", "start",
          "-a", "android.intent.action.CALL", "-d", f"tel:{phone_number}"],
-        capture_output=True, timeout=10,
+        capture_output=True, timeout=10, env=env,
     )
 
 

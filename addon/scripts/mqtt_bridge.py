@@ -182,7 +182,7 @@ def hang_up_call(adb_address):
 
 
 def process_call(request, recognizer_model, sample_rate, handsfree_log_path,
-                  voice_model_path, adb_address, phone_bt_mac):
+                  voice_model_path, adb_address, phone_bt_mac, intro_message=""):
     request_id = request.get("id", "unknown")
     phone_number = request["phone_number"]
     message = request["message"]
@@ -190,9 +190,18 @@ def process_call(request, recognizer_model, sample_rate, handsfree_log_path,
     call_wait_timeout = request.get("call_wait_timeout_seconds", 60)
     listen_timeout = request.get("listen_timeout_seconds", 40)
 
+    # SCO audio comes up within a fraction of a second of the network
+    # marking the call "answered" — but the person still needs a moment to
+    # physically get the phone to their ear after tapping answer. A silent
+    # pause here just means dead air; leading with a short spoken intro
+    # (e.g. "This is an automated message from...") fills that same window
+    # with something useful instead — it also tells the person who's
+    # calling before the actual message, which a silent pause doesn't.
+    full_message = f"{intro_message} {message}" if intro_message else message
+
     prompt_wav = f"/tmp/prompt_{request_id}.wav"
     print(f"[mqtt_bridge] synthesizing prompt for request {request_id}", flush=True)
-    synthesize_prompt(message, voice_model_path, prompt_wav)
+    synthesize_prompt(full_message, voice_model_path, prompt_wav)
 
     recognizer = vosk.KaldiRecognizer(recognizer_model, sample_rate)
 
@@ -258,6 +267,13 @@ def main():
     parser.add_argument("--mqtt-username", default="")
     parser.add_argument("--mqtt-password", default="")
     parser.add_argument("--sample-rate", type=int, default=16000)
+    parser.add_argument(
+        "--intro-message", default="",
+        help="Optional short phrase spoken before every call's message (e.g. "
+             "identifying who/what is calling). Also doubles as a buffer so "
+             "the person has a moment to get the phone to their ear before "
+             "the actual message starts, instead of a silent pause.",
+    )
     args = parser.parse_args()
 
     print("[mqtt_bridge] loading speech model (this takes a while, done once)...", flush=True)
@@ -300,6 +316,7 @@ def main():
             result = process_call(
                 request, model, args.sample_rate, args.handsfree_log_path,
                 args.voice_model_path, adb_address, args.phone_bt_mac,
+                intro_message=args.intro_message,
             )
         except Exception as e:
             print(f"[mqtt_bridge] request {request_id} failed: {e}", flush=True)

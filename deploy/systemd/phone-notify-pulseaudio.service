@@ -1,0 +1,16 @@
+[Unit]
+Description=PulseAudio for ha-phone-notify (root, null-sinks for HFP bridge)
+After=network.target sound.target
+
+[Service]
+Type=simple
+Environment=XDG_RUNTIME_DIR=/run/user/0
+ExecStartPre=/bin/mkdir -p /run/user/0
+ExecStart=/usr/bin/pulseaudio --daemonize=no --exit-idle-time=-1 --disallow-exit --log-target=journal
+ExecStartPost=/bin/sh -c 'sleep 2; XDG_RUNTIME_DIR=/run/user/0 pactl load-module module-null-sink sink_name=phone_notify_mic sink_properties=device.description=PhoneNotifyMic; XDG_RUNTIME_DIR=/run/user/0 pactl load-module module-null-sink sink_name=phone_notify_speaker sink_properties=device.description=PhoneNotifySpeaker'
+Restart=on-failure
+RestartSec=5
+User=root
+
+[Install]
+WantedBy=multi-user.target

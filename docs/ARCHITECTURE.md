@@ -398,6 +398,22 @@ primary installation path — the add-on skeleton is kept for anyone
 running bare-metal HAOS (no nested VM) where it should work fine, but
 is no longer the recommended path for VM-based installs.
 
+`deploy/systemd/` has ready-to-adapt unit templates for this: a
+PulseAudio instance with the two null-sinks, HandsFree-Linux itself,
+and the MQTT bridge, wired together with proper `Requires=`/`After=`
+ordering so a reboot brings the whole stack back up unattended. Fill in
+the placeholders (Bluetooth MAC, MQTT host/credentials, model paths) in
+`phone-notify-bridge.service` before installing. Also sets
+`OOMScoreAdjust=900` on the bridge service — loading the large Vosk
+model is a multi-GB spike, and on a host that also runs other memory-
+hungry things (like a hypervisor VM), you want the kernel to sacrifice
+this service first if memory gets tight, not whatever else is running.
+If your host is already memory-constrained, also make sure you have
+real (disk-backed) swap available, not just a fixed-size zram device —
+zram still counts against RAM since it stores compressed pages in
+memory, so it does not actually help absorb a multi-GB transient spike
+the way disk-backed swap does.
+
 ### First real end-to-end success (native, this session)
 
 Confirmation this actually works, not just in theory — a full run
@@ -465,11 +481,56 @@ before the first load — if available memory is tight, loading a ~2GB
 model on top of existing swap pressure is worth watching rather than
 assuming it'll just work.
 
+## The `notify.phone_call` custom_component
+
+`custom_components/phone_notify/` is a real HA `notify` platform now
+(previously the only way to trigger a call was publishing MQTT messages
+by hand). It's a thin wrapper: `notify.phone_call` publishes to
+`{prefix}/call`, subscribes to `{prefix}/result/<id>`, and re-fires
+whatever the bridge returns as a `phone_notify_result` event so any
+automation can react to it — all the actual calling/audio/recognition
+logic still lives entirely in the bridge, this component doesn't
+duplicate any of it. `target` is one or more literal phone numbers (no
+`person.*`/`device_tracker.*` resolution — build that mapping in your
+own automation if you need it). See the platform's own module docstring
+(`custom_components/phone_notify/notify.py`) for the full config and
+event schema.
+
+Validated against a real, running production HA instance end to end:
+`notify.phone_call` service call → MQTT → bridge → real call → real
+audio → recognized response → `phone_notify_result` event — with the
+full native-deployment stack (PulseAudio + HandsFree-Linux + bridge,
+all as the systemd services under `deploy/systemd/`) running
+unattended, not manually launched for the test.
+
+### A whole automation built on top of it, working
+
+Also validated: a real HA automation wiring Frigate's per-camera motion
+`binary_sensor`s to `notify.phone_call` (with a 10-minute cooldown via
+a template condition on the automation's own `last_triggered`), plus a
+second automation listening for `phone_notify_result` with
+`result == "alerta"` to escalate via push notification + Telegram. This
+is the first time this project has driven a real detection source
+(not a manually-published MQTT test message) into a real phone call
+with a real branching outcome.
+
+### A UX bug found and fixed along the way: message starts before the person can react
+
+The first live household test surfaced something the earlier
+standalone tests didn't: SCO audio comes up within a fraction of a
+second of the network marking the call "answered," but the person still
+needs a moment to physically get the phone to their ear after tapping
+answer — so the TTS message was already partway through by the time
+they were listening, and they only heard the tail end of it. A fixed
+silent pause before playback would fix the timing but wastes the window
+on dead air. Instead, `mqtt_bridge.py` now takes an optional
+`--intro-message` (e.g. "This is an automated message from your home.")
+that's spoken *before* every call's actual message — it fills the same
+window with something useful (also identifying the caller, which a
+silent pause doesn't) instead of leaving it silent.
+
 ## Open questions / where this needs help
 
-- The actual HA `notify` custom_component doesn't exist yet — today
-  this is orchestrated by standalone scripts, see `addon/scripts/`.
-  In progress.
 - `docs/SETUP.md` still documents the Supervisor add-on install path
   as primary — needs a rewrite reflecting the native-deployment pivot
   above as the recommended path for VM-based HAOS installs.

@@ -1,0 +1,18 @@
+[Unit]
+Description=HandsFree-Linux (Bluetooth HFP-HF bridge for ha-phone-notify)
+After=phone-notify-pulseaudio.service bluetooth.service
+Requires=phone-notify-pulseaudio.service
+Wants=bluetooth.service
+
+[Service]
+Type=simple
+Environment=QT_QPA_PLATFORM=offscreen
+Environment=XDG_RUNTIME_DIR=/run/user/0
+WorkingDirectory=/opt/handsfree-linux
+ExecStart=/opt/phone-notify-venv/bin/python3 /opt/handsfree-linux/main.py --debug --log-file /tmp/handsfree-native-debug.log
+Restart=on-failure
+RestartSec=5
+User=root
+
+[Install]
+WantedBy=multi-user.target

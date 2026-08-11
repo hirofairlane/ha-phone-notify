@@ -10,16 +10,19 @@ service: notify.phone_call
 data:
   message: "A water leak was detected in the kitchen"
   target:
-    - person.alice
+    - "+15550123456"
   data:
     response_actions:
       cancel:
         keywords: ["cancel", "false alarm"]
       confirm:
         keywords: ["confirm", "call emergency"]
-    max_cycles: 3
-    call_timeout: 45
 ```
+
+(`target` is one or more literal phone numbers — no `person.*`
+resolution built in, see `custom_components/phone_notify/notify.py`'s
+docstring for the full schema and the `phone_notify_result` event it
+fires.)
 
 Any automation can react to the spoken response the same way it
 reacts to any other HA event — this isn't tied to any specific alarm
@@ -45,10 +48,14 @@ security alarm cascade with escalation.
 > two other dead ends (in-app audio capture, and the SLC/Bluetooth
 > flakiness bugs and their fixes) in
 > [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
-> **In progress:** a real HA `notify` custom_component wrapping the
-> MQTT protocol (right now you'd call it by publishing MQTT messages
-> yourself — see the protocol in `addon/scripts/mqtt_bridge.py`'s
-> docstring).
+> **The `notify.phone_call` service now exists**
+> (`custom_components/phone_notify/`) and has been validated against a
+> real, running production HA instance: service call → MQTT → bridge →
+> real call → real audio → recognized response → event, plus a full
+> real automation on top (Frigate motion → verification call → escalate
+> on confirmed alert). `deploy/systemd/` has unit templates for running
+> the whole native stack (PulseAudio + HandsFree-Linux + bridge)
+> unattended, surviving reboots.
 
 ## Why a phone call, and not a push notification?
 
@@ -99,11 +106,19 @@ that's exactly the API surface that's meant to carry live call audio.
 - Packaging as a Docker-based HA Supervisor add-on (`addon/`) builds
   and installs cleanly through the real Supervisor add-on flow — but
   see the caveat above about where it actually delivers working audio.
+- The `notify.phone_call` service itself (`custom_components/`),
+  called from a real HA instance's Developer Tools/REST API, with a
+  real automation (Frigate motion → call → escalate-on-alert) driving
+  it — not just manually-published MQTT test messages.
+- The full native stack (PulseAudio + HandsFree-Linux + bridge) running
+  as unattended systemd services (`deploy/systemd/`) and surviving a
+  restart, not manually launched per test.
 
 ## What's *not* proven / not built yet
 
-- The actual HA `notify` custom_component (config schema, events) —
-  today this is standalone scripts, see `addon/scripts/`. In progress.
+- `person.*`/`device_tracker.*` → phone number resolution in the
+  `notify` platform — `target` is literal phone numbers only today,
+  build that mapping in your own automation if you need it.
 - Whether the Docker-based Supervisor add-on delivers working audio on
   **bare-metal** HAOS (no nested VM) — the development/test
   environment is a VM, so only the native (non-Docker) deployment path

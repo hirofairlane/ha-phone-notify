@@ -1,0 +1,36 @@
+[Unit]
+Description=ha-phone-notify MQTT bridge (native, non-VM deployment)
+After=network-online.target phone-notify-handsfree.service
+Requires=phone-notify-handsfree.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=QT_QPA_PLATFORM=offscreen
+Environment=XDG_RUNTIME_DIR=/run/user/0
+# This process is the one you want the kernel to sacrifice first if your
+# host ever runs low on memory (see docs/ARCHITECTURE.md — loading the
+# large Vosk model natively OOM-killed an unrelated VM on the same host in
+# one deployment before this was added, because the VM's qemu process was
+# simply the single largest RSS consumer at the time and got picked first).
+# A strongly positive score here makes the kernel prefer killing this
+# service over anything running at the kernel's default priority.
+OOMScoreAdjust=900
+ExecStart=/opt/phone-notify-venv/bin/python3 /opt/phone-notify/mqtt_bridge.py \
+  --vosk-model-path /opt/phone-notify-data/vosk-model \
+  --handsfree-log-path /tmp/handsfree-native-debug.log \
+  --mqtt-topic-prefix phone_notify \
+  --voice-model-path /opt/phone-notify-data/tts-voice/voice.onnx \
+  --adb-address-file /etc/phone-notify/adb_address \
+  --phone-bt-mac AA:BB:CC:DD:EE:FF \
+  --mqtt-host 192.168.1.10 \
+  --mqtt-port 1883 \
+  --mqtt-username CHANGEME \
+  --mqtt-password CHANGEME \
+  --intro-message "This is an automated message from your home."
+Restart=on-failure
+RestartSec=10
+User=root
+
+[Install]
+WantedBy=multi-user.target

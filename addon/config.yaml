@@ -9,6 +9,8 @@ arch:
 init: false
 host_dbus: true
 host_network: true
+devices:
+  - /dev/snd
 map:
   - config:rw
 options:

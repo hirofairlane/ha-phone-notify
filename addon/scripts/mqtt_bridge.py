@@ -168,6 +168,19 @@ def trigger_call(adb_address, phone_number, phone_bt_mac, handsfree_log_path):
     )
 
 
+def hang_up_call(adb_address):
+    """Always called at the end of process_call, regardless of outcome —
+    otherwise a call that times out without a matched keyword (or a
+    NO_CALL where the radio still picked up after wait_for_sco_start gave
+    up) is left connected indefinitely, since nothing else ever ends it.
+    """
+    env = _adb_env()
+    subprocess.run(
+        ["adb", "-s", adb_address, "shell", "input", "keyevent", "KEYCODE_ENDCALL"],
+        capture_output=True, timeout=10, env=env,
+    )
+
+
 def process_call(request, recognizer_model, sample_rate, handsfree_log_path,
                   voice_model_path, adb_address, phone_bt_mac):
     request_id = request.get("id", "unknown")
@@ -186,47 +199,50 @@ def process_call(request, recognizer_model, sample_rate, handsfree_log_path,
     print(f"[mqtt_bridge] dialing {phone_number}", flush=True)
     trigger_call(adb_address, phone_number, phone_bt_mac, handsfree_log_path)
 
-    with open(handsfree_log_path, "r") as log_file:
-        log_file.seek(0, os.SEEK_END)
-        if not wait_for_sco_start(log_file, call_wait_timeout):
-            return "NO_CALL"
+    try:
+        with open(handsfree_log_path, "r") as log_file:
+            log_file.seek(0, os.SEEK_END)
+            if not wait_for_sco_start(log_file, call_wait_timeout):
+                return "NO_CALL"
 
-        subprocess.Popen(["paplay", f"--device={MIC_SINK}", prompt_wav])
-        capture_proc = subprocess.Popen(
-            ["parec", f"--device={SPEAKER_SOURCE}", "--rate", str(sample_rate),
-             "--channels=1", "--format=s16le"],
-            stdout=subprocess.PIPE,
-        )
+            subprocess.Popen(["paplay", f"--device={MIC_SINK}", prompt_wav])
+            capture_proc = subprocess.Popen(
+                ["parec", f"--device={SPEAKER_SOURCE}", "--rate", str(sample_rate),
+                 "--channels=1", "--format=s16le"],
+                stdout=subprocess.PIPE,
+            )
 
-        result_action = None
-        start = time.time()
-        try:
-            while time.time() - start < listen_timeout:
-                if sco_has_stopped(log_file):
-                    break
-                ready, _, _ = select.select([capture_proc.stdout], [], [], 0.3)
-                if not ready:
-                    continue
-                data = capture_proc.stdout.read(4000)
-                if not data:
-                    break
-                if recognizer.AcceptWaveform(data):
-                    text = json.loads(recognizer.Result()).get("text", "")
-                else:
-                    text = json.loads(recognizer.PartialResult()).get("partial", "")
-                if text:
-                    print(f"[mqtt_bridge] heard: '{text}'", flush=True)
-                    for action_name, action_cfg in response_actions.items():
-                        if any(kw in text for kw in action_cfg["keywords"]):
-                            result_action = action_name
-                            break
-                    if result_action:
+            result_action = None
+            start = time.time()
+            try:
+                while time.time() - start < listen_timeout:
+                    if sco_has_stopped(log_file):
                         break
-        finally:
-            capture_proc.terminate()
+                    ready, _, _ = select.select([capture_proc.stdout], [], [], 0.3)
+                    if not ready:
+                        continue
+                    data = capture_proc.stdout.read(4000)
+                    if not data:
+                        break
+                    if recognizer.AcceptWaveform(data):
+                        text = json.loads(recognizer.Result()).get("text", "")
+                    else:
+                        text = json.loads(recognizer.PartialResult()).get("partial", "")
+                    if text:
+                        print(f"[mqtt_bridge] heard: '{text}'", flush=True)
+                        for action_name, action_cfg in response_actions.items():
+                            if any(kw in text for kw in action_cfg["keywords"]):
+                                result_action = action_name
+                                break
+                        if result_action:
+                            break
+            finally:
+                capture_proc.terminate()
 
-    os.remove(prompt_wav)
-    return result_action or "TIMEOUT"
+        return result_action or "TIMEOUT"
+    finally:
+        hang_up_call(adb_address)
+        os.remove(prompt_wav)
 
 
 def main():

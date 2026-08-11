@@ -27,25 +27,28 @@ system. Use it for leak detection, medication reminders that need a
 "yes I took it", garage-door-left-open confirmations, or a real
 security alarm cascade with escalation.
 
-> **Status: early / experimental, installable, but flaky.** This
-> started as a weekend project to solve a very specific problem (see
-> [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full story,
-> including two dead ends worth knowing about before you try to build
-> on this yourself). The add-on has been built and installed for real
-> through the HA Supervisor add-on store (not just built locally) —
-> MQTT in, `adb` dialing, TTS prompt, listening for the response, MQTT
-> result out, plus a startup self-diagnostic
-> (`addon/scripts/doctor.py`) that checks every external dependency.
-> **Known bug, not yet fixed:** the Bluetooth HFP link is intermittently
-> flaky — sometimes drops after a period of idle time and doesn't
-> always re-establish cleanly before a call, which silently results in
-> a normal audio-less phone call instead of the TTS prompt + listening
-> flow. Full write-up and leads for whoever picks this up next in
-> [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#known-issue-the-hfp-link-slc-can-be-flaky-under-bluez).
-> **Also not yet done:** a real HA `notify` custom_component wrapping
-> the MQTT protocol (right now you'd call it by publishing MQTT
-> messages yourself — see the protocol in
-> `addon/scripts/mqtt_bridge.py`'s docstring). Contributions welcome.
+> **Status: working end-to-end, on the right deployment target.** A
+> real call, placed for real, with the TTS prompt heard and a spoken
+> response ("cancelar") correctly recognized and matched to an action,
+> and the call automatically hung up afterward — all through the
+> actual `addon/scripts/mqtt_bridge.py` code, no shortcuts. See
+> [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#deployment-pivot-run-natively-on-a-debianubuntu-host-not-as-a-supervisor-add-on)
+> for the full trace. **Important caveat:** this only works reliably
+> running the scripts directly on a Debian/Ubuntu host (which can be a
+> Proxmox host, a Raspberry Pi, or any always-on Linux box on your
+> network) — **not** packaged as a Docker-based HA Supervisor add-on
+> if your Home Assistant install is itself a VM. Audio streaming hits a
+> real, root-caused bug specific to that nested-virtualization
+> combination (Docker inside a VM inside a hypervisor); the add-on
+> skeleton in `addon/` still builds and installs, but is only expected
+> to deliver working audio on bare-metal HAOS. Full story, including
+> two other dead ends (in-app audio capture, and the SLC/Bluetooth
+> flakiness bugs and their fixes) in
+> [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+> **In progress:** a real HA `notify` custom_component wrapping the
+> MQTT protocol (right now you'd call it by publishing MQTT messages
+> yourself — see the protocol in `addon/scripts/mqtt_bridge.py`'s
+> docstring).
 
 ## Why a phone call, and not a push notification?
 
@@ -86,19 +89,29 @@ that's exactly the API surface that's meant to carry live call audio.
 
 - Real two-way audio in a live cellular call via a software Bluetooth
   HFP Hands-Free bridge (no app modification, no exotic radio hardware
-  — just a Linux box with a normal Bluetooth adapter).
-- Local, offline speech recognition (Vosk) on the call's incoming
-  audio, distinguishing between two different spoken responses
-  ("cancel" vs. "confirm") and branching the automation accordingly.
-- A "confirm" response automatically escalating to call other people
-  in sequence with a different, informational-only message.
+  — just a Linux box with a normal Bluetooth adapter), running the
+  actual `addon/scripts/mqtt_bridge.py` code end to end.
+- Local, offline speech recognition (Vosk, the larger ~2.3GB model —
+  the small one isn't accurate enough on real narrowband call audio)
+  correctly recognizing a spoken response and matching it to a
+  configured action.
+- The call being automatically hung up once the interaction is done.
+- Packaging as a Docker-based HA Supervisor add-on (`addon/`) builds
+  and installs cleanly through the real Supervisor add-on flow — but
+  see the caveat above about where it actually delivers working audio.
 
 ## What's *not* proven / not built yet
 
 - The actual HA `notify` custom_component (config schema, events) —
-  today this is standalone scripts, see `addon/scripts/`.
-- Packaging as a proper HA Supervisor add-on (Docker image following
-  the add-on schema) — `addon/` has a starting skeleton, untested.
+  today this is standalone scripts, see `addon/scripts/`. In progress.
+- Whether the Docker-based Supervisor add-on delivers working audio on
+  **bare-metal** HAOS (no nested VM) — the development/test
+  environment is a VM, so only the native (non-Docker) deployment path
+  has been validated so far.
+- Multi-recipient escalation (calling a second person if the first
+  doesn't confirm) at the `notify` platform level — the underlying
+  call/listen primitive works standalone, but isn't wired into a
+  cascade orchestrator in this repo yet.
 - Capturing/injecting call audio **from inside the Android app
   itself**, without an external Bluetooth bridge device — investigated
   in depth, hit a real hardware wall on the one device tested. Full
